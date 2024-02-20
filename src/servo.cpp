@@ -81,9 +81,10 @@ void driveStepperMotorUsing(int motorPin, int directionPin, int steps) {
         }
 }
 
-
-Point convertImageCoordinatesToDriveSteps(Size imageSize, Point centerPoint) {
+Point convertImageCoordinatesToDriveSteps(Size2f imageSize, Rect box, bool debug) {
 	assert(("Image size should be greated than zero", imageSize.width > 0 && imageSize.height > 0));
+
+	auto centerPoint = Point(box.x + box.width / 2, box.y + box.height / 2);
 
         /*
                  x = column - (width / 2)
@@ -92,9 +93,12 @@ Point convertImageCoordinatesToDriveSteps(Size imageSize, Point centerPoint) {
 
         // convert image coordinates to Cartesian
 
-        int x = floor(centerPoint.x - (imageSize.width / 2));
-        int y = -(floor(centerPoint.y - (imageSize.height / 2)));
+        float x = floorf(centerPoint.x - (imageSize.width / 2));
+        float y = -(floorf(centerPoint.y - (imageSize.height / 2)));
 
+	if (debug) {
+		printf("deviation from center: x %f y %f\n", x, y);
+	}
 
         /* Convert image coordinates to Cartesian
 
@@ -125,11 +129,19 @@ Point convertImageCoordinatesToDriveSteps(Size imageSize, Point centerPoint) {
         // todo: save save current position for cases when pos=3, nextPos=-3
         // when sign changes we need to recalculate steps to 0 and from 0 to desired position.
 
-        int stepsForX = round((numberOfStepsPerQuadrant / (float(imageSize.width) * 0.5)) * float(x));
-        int stepsForY = round((numberOfStepsPerQuadrant / (float(imageSize.height) * 0.5)) * float(y));
+        int stepsForX = round((numberOfStepsPerQuadrant / (imageSize.width * 0.5)) * float(x));
+        int stepsForY = round((numberOfStepsPerQuadrant / (imageSize.height * 0.5)) * float(y));
 
-        driveStepperMotorUsing(MOTOR_X_STEP_PIN, stepsForX, MOTOR_X_DIRECTION_PIN);
-        driveStepperMotorUsing(MOTOR_Y_STEP_PIN, stepsForY, MOTOR_Y_DIRECTION_PIN);
+	if (debug) {
+		printf("X => round((%f / (%f * %f) * %f) = %d\n",numberOfStepsPerQuadrant, imageSize.width, 0.5, x, stepsForX);
+        	printf("Y => round((%f / (%f * %f) * %f) = %d\n",numberOfStepsPerQuadrant, imageSize.height, 0.5, y, stepsForY);
+	}
 
         return cv::Point(stepsForX, stepsForY);
+}
+
+// Send impulses to servo motors to actuate fins
+void driveMotors(Point steps) {
+	driveStepperMotorUsing(MOTOR_X_STEP_PIN, steps.x, MOTOR_X_DIRECTION_PIN);
+        driveStepperMotorUsing(MOTOR_Y_STEP_PIN, steps.y, MOTOR_Y_DIRECTION_PIN);
 }

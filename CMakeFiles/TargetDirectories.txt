@@ -1,3 +1,0 @@
-/home/at/processing/CMakeFiles/rebuild_cache.dir
-/home/at/processing/CMakeFiles/edit_cache.dir
-/home/at/processing/CMakeFiles/opencv-process.dir

@@ -8,10 +8,24 @@
 using namespace std;
 using namespace cv;
 
-#define FRAME_WIDTH 640 // 320
-#define FRAME_HEIGHT 640 // 320
+#define FRAME_WIDTH 640 	// 320
+#define FRAME_HEIGHT 640 	// 320
 
 CascadeClassifier human_cascade = CascadeClassifier("haarcascade_fullbody.xml");
+
+VideoCapture initLocalVideoCapture(String path) {
+	cv::VideoCapture capture(path);
+	if (!capture.isOpened()) {
+       		std::cerr << "Error opening video file\n";
+    	}
+	return capture;
+}
+
+Mat cropImageFromCenter(cv::Mat &image, Size frameSize, Size cropSize) {
+	return image(
+		Rect(frameSize.width / 2 - cropSize.width / 2, frameSize.height / 2 - cropSize.height / 2, cropSize.width, cropSize.height)
+	);
+}
 
 void loopLocallyUsingHaarAlgo(String path = "images/*.jpg") {
 	Mat colorImage;
@@ -51,10 +65,10 @@ void loopLocallyUsingHaarAlgo(String path = "images/*.jpg") {
 
 		// select first object detected and calculate position
 		if (!humans.empty()) {
-                	auto firstHumanDetected = Point(humans[0].x + (humans[0].width / 2), humans[0].y + (humans[0].height / 2));
+                	// auto firstHumanDetected = Point(humans[0].x + (humans[0].width / 2), humans[0].y + (humans[0].height / 2));
 
 			// convert to fin steps & driver motors
-			auto steps = convertImageCoordinatesToDriveSteps(Size(FRAME_WIDTH,FRAME_HEIGHT), firstHumanDetected);
+			auto steps = convertImageCoordinatesToDriveSteps(Size(FRAME_WIDTH,FRAME_HEIGHT), humans[0]);
 
 			// add position steps in numers to the image
 			circle(colorImage, Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 3, Scalar(0, 255, 0), FILLED, LINE_8);

@@ -8,43 +8,15 @@
 #include <vector>
 #include <iostream>
 
-//#include <opencv2/opencv.hpp>
-//#include "opencv2/objdetect.hpp"
-//#include "opencv2/imgproc.hpp"
-//#include <opencv2/core/types.hpp>
-//#include <wiringPi.h>
-
-
 #include "common.cpp"
 #include "servo.cpp"
 #include "camera.cpp"
-
-// #include "StepperMotor.hpp"
+#include "yolo-integration.cpp"
 
 const int ledPin = 14; //25;
 
 // Define GPIO pins connected to the stepper motor driver
 #define ENABLE_PIN 27 // Example GPIO 27
-
-// Define constants for stepper motor control
-#define STEPS_PER_REVOLUTION 20
-
-//100000 // 100_000 = 0.1 seconds  // was 2000 // Microseconds delay between steps (adjust as needed for your motor)
-#define STEP_DELAY_US 2000
-
-//====== X axis motors pins ======
-
-#define MOTOR_X_STEP_PIN 4
-#define MOTOR_X_DIRECTION_PIN 14
-
-//====== Y axis motors pins ======
-
-#define MOTOR_Y_STEP_PIN 22
-#define MOTOR_Y_DIRECTION_PIN 23
-
-
-const int frameWidth = 640; // 320; 	// 1280; // 640;
-const int frameHeight = 640; // 320; 	// 800; // 240;
 
 using namespace std;
 using namespace cv;
@@ -62,9 +34,112 @@ int main(int argc, char** argv) {
 
         enablePins();
 
-	loopLocallyUsingHaarAlgo();
+	auto net = createYoloNetwork();
+	auto classList = load_class_list();
 
-	//
+	Mat frame;
+	bool debug = true;
+
+	auto capture = initLocalVideoCapture("../resources/videos/sample2.mp4");
+
+	int frameNumber = 1; // 0;
+
+	while(true) {
+
+		// kill all fbi processes to free resources
+         	// system("sudo kill $(pgrep fbi) >/dev/null 2>&1");
+
+		// read frame
+        	capture.read(frame);
+        	if (frame.empty()) {
+            		std::cout << "End of stream\n";
+            		break;
+        	}
+
+		++frameNumber;
+		if (frameNumber % 30 != 0) {
+			printf("skipped frame: %d \n", frameNumber);
+			continue;
+		}
+
+		if (debug) {
+			printf("Frame captured: w: %d h: %d \n", frame.size().width, frame.size().height);
+        		// std::cout << "Frame captured\n";
+			// std::cout << frame.size().width << " " << frame.size().height << "\n";
+		}
+
+		// crop image from center 640x640
+		auto croppedImage = cropImageFromCenter(frame, frame.size(), Size(INPUT_WIDTH, INPUT_HEIGHT));
+
+		// show image
+		if (debug) {
+        		// save
+                	// imwrite("../resources/output.jpg", croppedImage);
+			// send to video frame buffer
+			// system("sudo fbi -T 2 -d /dev/fb0 -noverbose ../resources/output.jpg >/dev/null 2>&1");
+		}
+
+		// detect
+		auto detection = detectFirstObjectWithBiggestPrecision(net, croppedImage, classList, debug);
+
+		// draw rectangle
+		if (debug) {
+			// draw rectangle
+			// std::cout << "detection: " << detection.box.width << " " << detection.box.height << "\n";
+
+			// draw object center + rectangle + coord text
+			auto center = Point(detection.box.x + (detection.box.width / 2), detection.box.y + (detection.box.height / 2));
+                   	circle(croppedImage, center, 3, Scalar(0, 0, 255), FILLED, LINE_8);
+			rectangle(croppedImage, detection.box, Scalar(0, 0, 255), 2);
+			putText(croppedImage, format("(%d,%d)", center.x + 15, center.y), center, FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0), 1, LINE_AA);
+
+			// add center target lines + text
+			circle(croppedImage, Point(croppedImage.size().width / 2, croppedImage.size().height / 2), 3, Scalar(255, 0, 0), FILLED, LINE_8);
+			line(croppedImage,
+				 Point(croppedImage.size().width / 4, croppedImage.size().height / 2),
+				 Point(croppedImage.size().width * 0.75, croppedImage.size().height / 2),
+				 Scalar(255, 0, 0), 1, LINE_8
+			);
+
+			line(croppedImage,
+                                 Point(croppedImage.size().width / 2, croppedImage.size().height / 4),
+                                 Point(croppedImage.size().width / 2, croppedImage.size().height - (croppedImage.size().height / 4)),
+                                 Scalar(255, 0, 0), 1, LINE_8
+			);
+
+			// save image
+			// imwrite("../resources/output.jpg", croppedImage);
+
+                        // send to video frame buffer
+                        // system("sudo fbi -T 2 -d /dev/fb0 -noverbose ../resources/output.jpg >/dev/null 2>&1");
+		}
+
+		// convert
+		auto steps = convertImageCoordinatesToDriveSteps(croppedImage.size(), detection.box, debug);
+
+		if (debug) {
+			printf("steps x: %d y: %d \n", steps.x, steps.y);
+			putText(croppedImage, format(" x:%d ", steps.x),
+				Point(croppedImage.size().width - (croppedImage.size().width / 4), croppedImage.size().height / 2 + 5),
+					FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 0, 0), 1, LINE_AA);
+			putText(croppedImage, format(" y:%d ", steps.y),
+                                Point(croppedImage.size().width / 2 - 15, croppedImage.size().height / 4 - 10),
+                                        FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 0, 0), 1, LINE_AA);
+
+			// save image
+                        imwrite("../resources/output.jpg", croppedImage);
+
+                        // send to video frame buffer
+                        system("sudo fbi -T 2 -d /dev/fb0 -noverbose ../resources/output.jpg >/dev/null 2>&1");
+		}
+
+		// drive
+                driveMotors(steps);
+	}
+
+	// detection.box
+
+	// loopLocallyUsingHaarAlgo();
 
 	return 0;
 
@@ -87,15 +162,19 @@ int main(int argc, char** argv) {
 
 	while (stop < 10) {
 
-		Point detectedObjectCenterPoint = Point(1 + (rand() % frameWidth), 1 + (rand() % frameHeight));
+		// Point detectedObjectCenterPoint = Point(1 + (rand() % frameWidth), 1 + (rand() % frameHeight));
 
-		long long start_time = cv::getTickCount();
+		// long long start_time = cv::getTickCount();
 
-		auto steps = convertImageCoordinatesToDriveSteps(cv::Size(frameWidth, frameHeight), detectedObjectCenterPoint);
+		// convert 
+		// auto steps = convertImageCoordinatesToDriveSteps(cv::Size(frameWidth, frameHeight), detectedObjectCenterPoint);
 
-      		logFile << steps.x << "," << steps.y << "," << ((1/cv::getTickFrequency()) * (cv::getTickCount() - start_time)) << endl;
+		// drive motors
+		// driveMotors(steps);
 
-		stop++;
+      		// logFile << steps.x << "," << steps.y << "," << ((1/cv::getTickFrequency()) * (cv::getTickCount() - start_time)) << endl;
+
+		// stop++;
 	}
 
 	logFile.close();
@@ -182,8 +261,8 @@ int main(int argc, char** argv) {
     	//	return -1;
   	//}
 
-	Mat color; // used to debug
- 	Mat frame = Mat(frameWidth, frameHeight, CV_8UC1);
+	//Mat color; // used to debug
+ 	//Mat frame = Mat(frameWidth, frameHeight, CV_8UC1);
 
 	// equalizeHist(frame, frame);
 
@@ -233,29 +312,18 @@ int main(int argc, char** argv) {
 		// human_cascade.detectMultiScale(frame, humans);
 		human_cascade.detectMultiScale(frame, humans, 1.3, 1, 0, Size(20,20), Size());
 
-		cvtColor(frame, color, cv::COLOR_GRAY2BGR);
+		// cvtColor(frame, color, cv::COLOR_GRAY2BGR);
 
 		for ( size_t i = 0; i < humans.size(); i++ ) {
-		   rectangle(color, humans[i], Scalar(rand() % 255 + 1, rand() % 255 + 1, rand() % 255 + 1), 1, LINE_8);
+		   // rectangle(color, humans[i], Scalar(rand() % 255 + 1, rand() % 255 + 1, rand() % 255 + 1), 1, LINE_8);
 
-		   auto center = Point(humans[i].x + (humans[i].width / 2), humans[i].y + (humans[i].height / 2));
+		   // auto center = Point(humans[i].x + (humans[i].width / 2), humans[i].y + (humans[i].height / 2));
 
-                   circle(color, center, 2, Scalar(0, 0, 255), FILLED, LINE_8);
+                   // circle(color, center, 2, Scalar(0, 0, 255), FILLED, LINE_8);
 
-                   putText(color, format("(%d,%d)", center.x + 15, center.y), center, FONT_HERSHEY_SIMPLEX, 0.3, Scalar(0, 255, 0), 1, LINE_AA);
+                   // putText(color, format("(%d,%d)", center.x + 15, center.y), center, FONT_HERSHEY_SIMPLEX, 0.3, Scalar(0, 255, 0), 1, LINE_AA);
 		}
 
-		if (!humans.empty()) {
-			auto center = Point(humans[0].x + (humans[0].width / 2), humans[0].y + (humans[0].height / 2));
-
-
-			// Correction by X
-			if (center.x > (frameWidth / 2)) {
-				// + side
-			} else {
-				// - side
-			}
-		}
 
 		// center.x > width / 2 => rotate right direction stepper motors on X axis with nr of steps (x >= (3/4*width) -> 2 else x<= (1/2*width) -> 1 else 0) 
 
@@ -263,7 +331,7 @@ int main(int argc, char** argv) {
 		// detector.detectMultiScale(frame, humans, 0, Size(64,128), Size(), 1.2, 2, true);
 		// detector.detect(frame, found, 0, Size(64,128));
 
-		imwrite("output.jpg", color);
+		// imwrite("output.jpg", color);
 
 		system("sudo fbi -T 2 -d /dev/fb0 -noverbose output.jpg >/dev/null 2>&1");
 

@@ -1,0 +1,28 @@
+person
+bicycle
+car
+motorbike
+aeroplane
+bus
+train
+truck
+stop sign
+parking meter
+bench
+bird
+backpack
+umbrella
+handbag
+frisbee
+skis
+snowboard
+sports ball
+kite
+bottle
+chair
+sofa
+bed
+toilet
+cell phone
+microwave
+book
